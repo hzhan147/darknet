@@ -32,6 +32,7 @@ static image in_s ;
 static image det_s;
 
 static cap_cv *cap;
+static cap_cv *cap2;
 static float fps = 0;
 static float demo_thresh = 0;
 static int demo_ext_output = 0;
@@ -41,8 +42,11 @@ static int demo_json_port = -1;
 #define NFRAMES 3
 
 static float* predictions[NFRAMES];
+static float* predictions2[NFRAMES];
 static int demo_index = 0;
+static int demo_index2 = 0;
 static mat_cv* cv_images[NFRAMES];
+static mat_cv* cv_images2[NFRAMES];
 static float *avg;
 
 mat_cv* in_img;
@@ -50,15 +54,23 @@ mat_cv* det_img;
 mat_cv* show_img;
 
 static volatile int flag_exit;
+static volatile int flag_cam;
 static int letter_box = 0;
 
 void *fetch_in_thread(void *ptr)
 {
     int dont_close_stream = 0;    // set 1 if your IP-camera periodically turns off and turns on video-stream
-    if(letter_box)
-        in_s = get_image_from_stream_letterbox(cap, net.w, net.h, net.c, &in_img, dont_close_stream);
-    else
-        in_s = get_image_from_stream_resize(cap, net.w, net.h, net.c, &in_img, dont_close_stream);
+    if(!flag_cam){
+        if(letter_box)
+            in_s = get_image_from_stream_letterbox(cap, net.w, net.h, net.c, &in_img, dont_close_stream);
+        else
+            in_s = get_image_from_stream_resize(cap, net.w, net.h, net.c, &in_img, dont_close_stream);
+    }else{
+        if(letter_box)
+            in_s = get_image_from_stream_letterbox(cap2, net.w, net.h, net.c, &in_img, dont_close_stream);
+        else
+            in_s = get_image_from_stream_resize(cap2, net.w, net.h, net.c, &in_img, dont_close_stream);
+    }
     if(!in_s.data){
         printf("Stream closed.\n");
         flag_exit = 1;
@@ -76,19 +88,30 @@ void *detect_in_thread(void *ptr)
     float *X = det_s.data;
     float *prediction = network_predict(net, X);
 
-    memcpy(predictions[demo_index], prediction, l.outputs*sizeof(float));
-    mean_arrays(predictions, NFRAMES, l.outputs, avg);
-    l.output = avg;
+    if(!flag_cam){
+        memcpy(predictions[demo_index], prediction, l.outputs*sizeof(float));
+        mean_arrays(predictions, NFRAMES, l.outputs, avg);
+        l.output = avg;
 
-    cv_images[demo_index] = det_img;
-    det_img = cv_images[(demo_index + NFRAMES / 2 + 1) % NFRAMES];
-    demo_index = (demo_index + 1) % NFRAMES;
+        cv_images[demo_index] = det_img;
+        det_img = cv_images[(demo_index + NFRAMES / 2 + 1) % NFRAMES];
+        demo_index = (demo_index + 1) % NFRAMES;
+    }else{
+        memcpy(predictions2[demo_index2], prediction, l.outputs*sizeof(float));
+        mean_arrays(predictions2, NFRAMES, l.outputs, avg);
+        l.output = avg;
+
+        cv_images2[demo_index2] = det_img;
+        det_img = cv_images2[(demo_index2 + NFRAMES / 2 + 1) % NFRAMES];
+        demo_index2 = (demo_index2 + 1) % NFRAMES;
+    }
 
     if (letter_box)
         dets = get_network_boxes(&net, get_width_mat(in_img), get_height_mat(in_img), demo_thresh, demo_thresh, 0, 1, &nboxes, 1); // letter box
     else
         dets = get_network_boxes(&net, net.w, net.h, demo_thresh, demo_thresh, 0, 1, &nboxes, 0); // resized
 
+    flag_cam = !flag_cam;
     return 0;
 }
 
@@ -132,9 +155,10 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     }else{
         printf("Webcam index: %d\n", cam_index);
         cap = get_capture_webcam(cam_index);
+        cap2 = get_capture_webcam(cam_index+1);
     }
 
-    if (!cap) {
+    if (!cap || !cap2) {
 #ifdef WIN32
         printf("Check that you have copied file opencv_ffmpeg340_64.dll to the same directory where is darknet.exe \n");
 #endif
@@ -146,6 +170,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 
     avg = (float *) calloc(l.outputs, sizeof(float));
     for(j = 0; j < NFRAMES; ++j) predictions[j] = (float *) calloc(l.outputs, sizeof(float));
+    for(j = 0; j < NFRAMES; ++j) predictions2[j] = (float *) calloc(l.outputs, sizeof(float));
 
     if (l.classes != demo_classes) {
         printf("Parameters don't match: in cfg-file classes=%d, in data-file classes=%d \n", l.classes, demo_classes);
@@ -180,6 +205,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     if(!prefix && !dont_show){
         int full_screen = 0;
         create_window_cv("Demo", full_screen, 1352, 1013);
+        create_window_cv("Demo2", full_screen, 1352, 1013);
     }
 
 
@@ -252,7 +278,11 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 
             if(!prefix){
                 if (!dont_show) {
-                    show_image_mat(show_img, "Demo");
+                    if(!flag_cam){
+                        show_image_mat(show_img, "Demo");
+                    }else{
+                        show_image_mat(show_img, "Demo2");
+                    }
                     int c = wait_key_cv(1);
                     if (c == 10) {
                         if (frame_skip == 0) frame_skip = 60;
@@ -338,9 +368,16 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 
     free(avg);
     for (j = 0; j < NFRAMES; ++j) free(predictions[j]);
+    for (j = 0; j < NFRAMES; ++j) free(predictions2[j]);
     demo_index = (NFRAMES + demo_index - 1) % NFRAMES;
+    demo_index2 = (NFRAMES + demo_index2 - 1) % NFRAMES;
     for (j = 0; j < NFRAMES; ++j) {
+        if(*cv_images[j] != NULL){
             release_mat(&cv_images[j]);
+        }
+        if(*cv_images2[j] != NULL) {
+            release_mat(&cv_images2[j]);
+        }
     }
 
     free_ptrs((void **)names, net.layers[net.n - 1].classes);
