@@ -258,12 +258,12 @@ layer normalize_layer(layer l, int n)
 {
     int j;
     l.batch_normalize=1;
-    l.scales = (float*)calloc(n, sizeof(float));
+    l.scales = (float*)xcalloc(n, sizeof(float));
     for(j = 0; j < n; ++j){
         l.scales[j] = 1;
     }
-    l.rolling_mean = (float*)calloc(n, sizeof(float));
-    l.rolling_variance = (float*)calloc(n, sizeof(float));
+    l.rolling_mean = (float*)xcalloc(n, sizeof(float));
+    l.rolling_variance = (float*)xcalloc(n, sizeof(float));
     return l;
 }
 
@@ -433,12 +433,6 @@ int main(int argc, char **argv)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
 
-#ifdef GPU
-    show_cuda_cudnn_info();
-#endif// GPU
-
-    show_opencv_info();
-
 	int i;
 	for (i = 0; i < argc; ++i) {
 		if (!argv[i]) continue;
@@ -461,12 +455,18 @@ int main(int argc, char **argv)
 
 #ifndef GPU
     gpu_index = -1;
+    printf(" GPU isn't used \n");
+    init_cpu();
 #else
     if(gpu_index >= 0){
         cuda_set_device(gpu_index);
         CHECK_CUDA(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
     }
+
+    show_cuda_cudnn_info();
 #endif
+
+    show_opencv_info();
 
     if (0 == strcmp(argv[1], "average")){
         average(argc, argv);
@@ -535,8 +535,6 @@ int main(int argc, char **argv)
         oneoff(argv[2], argv[3], argv[4]);
     } else if (0 == strcmp(argv[1], "partial")){
         partial(argv[2], argv[3], argv[4], atoi(argv[5]));
-    } else if (0 == strcmp(argv[1], "average")){
-        average(argc, argv);
     } else if (0 == strcmp(argv[1], "visualize")){
         visualize(argv[2], (argc > 3) ? argv[3] : 0);
     } else if (0 == strcmp(argv[1], "imtest")){

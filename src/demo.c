@@ -173,7 +173,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     for(j = 0; j < NFRAMES; ++j) predictions2[j] = (float *) calloc(l.outputs, sizeof(float));
 
     if (l.classes != demo_classes) {
-        printf("Parameters don't match: in cfg-file classes=%d, in data-file classes=%d \n", l.classes, demo_classes);
+        printf("\n Parameters don't match: in cfg-file classes=%d, in data-file classes=%d \n", l.classes, demo_classes);
         getchar();
         exit(0);
     }

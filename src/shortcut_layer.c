@@ -2,6 +2,7 @@
 #include "convolutional_layer.h"
 #include "dark_cuda.h"
 #include "blas.h"
+#include "utils.h"
 #include "gemm.h"
 #include <stdio.h>
 #include <assert.h>
@@ -26,6 +27,7 @@ layer make_shortcut_layer(int batch, int n, int *input_layers, int* input_sizes,
     l.layers_delta = layers_delta;
     l.weights_type = weights_type;
     l.weights_normalizion = weights_normalizion;
+    l.learning_rate_scale = 1;  // not necessary
 
     //l.w = w2;
     //l.h = h2;
@@ -40,16 +42,18 @@ layer make_shortcut_layer(int batch, int n, int *input_layers, int* input_sizes,
 
     l.index = l.input_layers[0];
 
-    if (train) l.delta = (float*)calloc(l.outputs * batch, sizeof(float));
-    l.output = (float*)calloc(l.outputs * batch, sizeof(float));
 
+    if (train) l.delta = (float*)xcalloc(l.outputs * batch, sizeof(float));
+    l.output = (float*)xcalloc(l.outputs * batch, sizeof(float));
+
+    l.nweights = 0;
     if (l.weights_type == PER_FEATURE) l.nweights = (l.n + 1);
     else if (l.weights_type == PER_CHANNEL) l.nweights = (l.n + 1) * l.c;
 
     if (l.nweights > 0) {
         l.weights = (float*)calloc(l.nweights, sizeof(float));
         float scale = sqrt(2. / l.nweights);
-        for (i = 0; i < l.nweights; ++i) l.weights[i] = 1;// scale*rand_uniform(-1, 1);   // rand_normal();
+        for (i = 0; i < l.nweights; ++i) l.weights[i] = 1 + 0.01*rand_uniform(-1, 1);// scale*rand_uniform(-1, 1);   // rand_normal();
 
         if (train) l.weight_updates = (float*)calloc(l.nweights, sizeof(float));
         l.update = update_shortcut_layer;
@@ -95,8 +99,8 @@ void resize_shortcut_layer(layer *l, int w, int h, network *net)
     l->h = l->out_h = h;
     l->outputs = w*h*l->out_c;
     l->inputs = l->outputs;
-    if (l->train) l->delta = (float*)realloc(l->delta, l->outputs * l->batch * sizeof(float));
-    l->output = (float*)realloc(l->output, l->outputs * l->batch * sizeof(float));
+    if (l->train) l->delta = (float*)xrealloc(l->delta, l->outputs * l->batch * sizeof(float));
+    l->output = (float*)xrealloc(l->output, l->outputs * l->batch * sizeof(float));
 
     int i;
     for (i = 0; i < l->n; ++i) {
@@ -107,6 +111,8 @@ void resize_shortcut_layer(layer *l, int w, int h, network *net)
 
         assert(l->w == net->layers[index].out_w && l->h == net->layers[index].out_h);
     }
+
+    if (l->activation == SWISH || l->activation == MISH) l->activation_input = (float*)realloc(l->activation_input, l->batch*l->outputs * sizeof(float));
 
 #ifdef GPU
     cuda_free(l->output_gpu);
@@ -132,6 +138,11 @@ void resize_shortcut_layer(layer *l, int w, int h, network *net)
 
     free(layers_output_gpu);
     free(layers_delta_gpu);
+
+    if (l->activation == SWISH || l->activation == MISH) {
+        cuda_free(l->activation_input_gpu);
+        l->activation_input_gpu = cuda_make_array(l->activation_input, l->batch*l->outputs);
+    }
 #endif
 
 }
@@ -177,14 +188,16 @@ void backward_shortcut_layer(const layer l, network_state state)
 
 void update_shortcut_layer(layer l, int batch, float learning_rate_init, float momentum, float decay)
 {
-    float learning_rate = learning_rate_init*l.learning_rate_scale;
-    //float momentum = a.momentum;
-    //float decay = a.decay;
-    //int batch = a.batch;
+    if (l.nweights > 0) {
+        float learning_rate = learning_rate_init*l.learning_rate_scale;
+        //float momentum = a.momentum;
+        //float decay = a.decay;
+        //int batch = a.batch;
 
-    axpy_cpu(l.nweights, -decay*batch, l.weights, 1, l.weight_updates, 1);
-    axpy_cpu(l.nweights, learning_rate / batch, l.weight_updates, 1, l.weights, 1);
-    scal_cpu(l.nweights, momentum, l.weight_updates, 1);
+        axpy_cpu(l.nweights, -decay*batch, l.weights, 1, l.weight_updates, 1);
+        axpy_cpu(l.nweights, learning_rate / batch, l.weight_updates, 1, l.weights, 1);
+        scal_cpu(l.nweights, momentum, l.weight_updates, 1);
+    }
 }
 
 #ifdef GPU
@@ -229,28 +242,30 @@ void backward_shortcut_layer_gpu(const layer l, network_state state)
 
 void update_shortcut_layer_gpu(layer l, int batch, float learning_rate_init, float momentum, float decay)
 {
-    float learning_rate = learning_rate_init*l.learning_rate_scale;
-    //float momentum = a.momentum;
-    //float decay = a.decay;
-    //int batch = a.batch;
+    if (l.nweights > 0) {
+        float learning_rate = learning_rate_init*l.learning_rate_scale;
+        //float momentum = a.momentum;
+        //float decay = a.decay;
+        //int batch = a.batch;
 
-    fix_nan_and_inf(l.weight_updates_gpu, l.nweights);
-    fix_nan_and_inf(l.weights_gpu, l.nweights);
+        reset_nan_and_inf(l.weight_updates_gpu, l.nweights);
+        fix_nan_and_inf(l.weights_gpu, l.nweights);
 
-    axpy_ongpu(l.nweights, -decay*batch, l.weights_gpu, 1, l.weight_updates_gpu, 1);
-    axpy_ongpu(l.nweights, learning_rate / batch, l.weight_updates_gpu, 1, l.weights_gpu, 1);
-    scal_ongpu(l.nweights, momentum, l.weight_updates_gpu, 1);
+        axpy_ongpu(l.nweights, -decay*batch, l.weights_gpu, 1, l.weight_updates_gpu, 1);
+        axpy_ongpu(l.nweights, learning_rate / batch, l.weight_updates_gpu, 1, l.weights_gpu, 1);
+        scal_ongpu(l.nweights, momentum, l.weight_updates_gpu, 1);
 
-    //if (l.clip) {
-    //    constrain_gpu(l.nweights, l.clip, l.weights_gpu, 1);
-    //}
+        //if (l.clip) {
+        //    constrain_gpu(l.nweights, l.clip, l.weights_gpu, 1);
+        //}
+    }
 }
 
 void pull_shortcut_layer(layer l)
 {
     cuda_pull_array_async(l.weights_gpu, l.weights, l.nweights);
     CHECK_CUDA(cudaPeekAtLastError());
-    cudaStreamSynchronize(get_cuda_stream());
+    CHECK_CUDA(cudaStreamSynchronize(get_cuda_stream()));
 }
 
 void push_shortcut_layer(layer l)

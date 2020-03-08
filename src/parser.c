@@ -198,6 +198,8 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     batch=params.batch;
     if(!(h && w && c)) error("Layer before convolutional layer must output image.");
     int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
+    int cbn = option_find_int_quiet(options, "cbn", 0);
+    if (cbn) batch_normalize = 2;
     int binary = option_find_int_quiet(options, "binary", 0);
     int xnor = option_find_int_quiet(options, "xnor", 0);
     int use_bin_output = option_find_int_quiet(options, "bin_output", 0);
@@ -356,7 +358,7 @@ int *parse_yolo_mask(char *a, int *num)
         for (i = 0; i < len; ++i) {
             if (a[i] == ',') ++n;
         }
-        mask = (int*)calloc(n, sizeof(int));
+        mask = (int*)xcalloc(n, sizeof(int));
         for (i = 0; i < n; ++i) {
             int val = atoi(a);
             mask[i] = val;
@@ -411,6 +413,7 @@ layer parse_yolo(list *options, size_params params)
 
     l.label_smooth_eps = option_find_float_quiet(options, "label_smooth_eps", 0.0f);
     l.scale_x_y = option_find_float_quiet(options, "scale_x_y", 1);
+    l.max_delta = option_find_float_quiet(options, "max_delta", FLT_MAX);   // set 10
     l.iou_normalizer = option_find_float_quiet(options, "iou_normalizer", 0.75);
     l.cls_normalizer = option_find_float_quiet(options, "cls_normalizer", 1);
     char *iou_loss = option_find_str_quiet(options, "iou_loss", "mse");   //  "iou");
@@ -506,6 +509,7 @@ layer parse_gaussian_yolo(list *options, size_params params) // Gaussian_YOLOv3
 
     l.label_smooth_eps = option_find_float_quiet(options, "label_smooth_eps", 0.0f);
     l.scale_x_y = option_find_float_quiet(options, "scale_x_y", 1);
+    l.max_delta = option_find_float_quiet(options, "max_delta", FLT_MAX);   // set 10
     l.uc_normalizer = option_find_float_quiet(options, "uc_normalizer", 1.0);
     l.iou_normalizer = option_find_float_quiet(options, "iou_normalizer", 0.75);
     l.cls_normalizer = option_find_float_quiet(options, "cls_normalizer", 1.0);
@@ -959,16 +963,16 @@ layer parse_upsample(list *options, size_params params, network net)
 route_layer parse_route(list *options, size_params params)
 {
     char *l = option_find(options, "layers");
-    int len = strlen(l);
     if(!l) error("Route Layer must specify input layers");
+    int len = strlen(l);
     int n = 1;
     int i;
     for(i = 0; i < len; ++i){
         if (l[i] == ',') ++n;
     }
 
-    int* layers = (int*)calloc(n, sizeof(int));
-    int* sizes = (int*)calloc(n, sizeof(int));
+    int* layers = (int*)xcalloc(n, sizeof(int));
+    int* sizes = (int*)xcalloc(n, sizeof(int));
     for(i = 0; i < n; ++i){
         int index = atoi(l);
         l = strchr(l, ',')+1;
@@ -1049,6 +1053,8 @@ void parse_net_options(list *options, network *net)
     net->batch *= net->time_steps;
     net->subdivisions = subdivs;
 
+    *net->cur_iteration = 0;
+    net->dynamic_minibatch = option_find_int_quiet(options, "dynamic_minibatch", 0);
     net->optimized_memory = option_find_int_quiet(options, "optimized_memory", 0);
     net->workspace_size_limit = (size_t)1024*1024 * option_find_float_quiet(options, "workspace_size_limit_MB", 1024);  // 1024 MB by default
 
@@ -1114,9 +1120,9 @@ void parse_net_options(list *options, network *net)
             for (i = 0; i < len; ++i) {
                 if (l[i] == ',') ++n;
             }
-            int* steps = (int*)calloc(n, sizeof(int));
-            float* scales = (float*)calloc(n, sizeof(float));
-            float* seq_scales = (float*)calloc(n, sizeof(float));
+            int* steps = (int*)xcalloc(n, sizeof(int));
+            float* scales = (float*)xcalloc(n, sizeof(float));
+            float* seq_scales = (float*)xcalloc(n, sizeof(float));
             for (i = 0; i < n; ++i) {
                 float scale = 1.0;
                 if (p) {
@@ -1199,6 +1205,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
     params.net = net;
     printf("batch = %d, time_steps = %d, train = %d \n", net.batch, net.time_steps, params.train);
 
+    int avg_outputs = 0;
     float bflops = 0;
     size_t workspace_size = 0;
     size_t max_inputs = 0;
@@ -1302,7 +1309,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
 #endif
         }
         else if (lt == EMPTY) {
-            layer empty_layer;
+            layer empty_layer = {(LAYER_TYPE)0};
             empty_layer.out_w = params.w;
             empty_layer.out_h = params.h;
             empty_layer.out_c = params.c;
@@ -1352,6 +1359,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
         }
 #endif // GPU
 
+        l.dynamic_minibatch = net.dynamic_minibatch;
         l.onlyforward = option_find_int_quiet(options, "onlyforward", 0);
         l.stopbackward = option_find_int_quiet(options, "stopbackward", 0);
         l.dontload = option_find_int_quiet(options, "dontload", 0);
@@ -1380,6 +1388,8 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
             }
         }
         if (l.bflops > 0) bflops += l.bflops;
+
+        avg_outputs += l.outputs;
     }
     free_list(sections);
 
@@ -1423,7 +1433,9 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
 
     net.outputs = get_network_output_size(net);
     net.output = get_network_output(net);
+    avg_outputs = avg_outputs / count;
     fprintf(stderr, "Total BFLOPS %5.3f \n", bflops);
+    fprintf(stderr, "avg_outputs = %d \n", avg_outputs);
 #ifdef GPU
     get_cuda_stream();
     get_cuda_memcpy_stream();
@@ -1434,7 +1446,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
         if (cudaSuccess == cudaHostAlloc(&net.input_pinned_cpu, size * sizeof(float), cudaHostRegisterMapped)) net.input_pinned_cpu_flag = 1;
         else {
             cudaGetLastError(); // reset CUDA-error
-            net.input_pinned_cpu = (float*)calloc(size, sizeof(float));
+            net.input_pinned_cpu = (float*)xcalloc(size, sizeof(float));
         }
 
         // pre-allocate memory for inference on Tensor Cores (fp16)
@@ -1449,12 +1461,12 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
             net.workspace = cuda_make_array(0, workspace_size / sizeof(float) + 1);
         }
         else {
-            net.workspace = (float*)calloc(1, workspace_size);
+            net.workspace = (float*)xcalloc(1, workspace_size);
         }
     }
 #else
         if (workspace_size) {
-            net.workspace = (float*)calloc(1, workspace_size);
+            net.workspace = (float*)xcalloc(1, workspace_size);
         }
 #endif
 
@@ -1481,7 +1493,7 @@ list *read_cfg(char *filename)
         strip(line);
         switch(line[0]){
             case '[':
-                current = (section*)malloc(sizeof(section));
+                current = (section*)xmalloc(sizeof(section));
                 list_insert(sections, current);
                 current->options = make_list();
                 current->type = line;
@@ -1544,7 +1556,6 @@ void save_shortcut_weights(layer l, FILE *fp)
 #endif
     int num = l.nweights;
     fwrite(l.weights, sizeof(float), num, fp);
-
 }
 
 void save_convolutional_weights(layer l, FILE *fp)
@@ -1690,7 +1701,7 @@ void save_weights(network net, char *filename)
 
 void transpose_matrix(float *a, int rows, int cols)
 {
-    float* transpose = (float*)calloc(rows * cols, sizeof(float));
+    float* transpose = (float*)xcalloc(rows * cols, sizeof(float));
     int x, y;
     for(x = 0; x < rows; ++x){
         for(y = 0; y < cols; ++y){
@@ -1822,14 +1833,12 @@ void load_convolutional_weights(layer l, FILE *fp)
 
 void load_shortcut_weights(layer l, FILE *fp)
 {
-    if (l.binary) {
-        //load_convolutional_weights_binary(l, fp);
-        //return;
-    }
     int num = l.nweights;
     int read_bytes;
     read_bytes = fread(l.weights, sizeof(float), num, fp);
     if (read_bytes > 0 && read_bytes < num) printf("\n Warning: Unexpected end of wights-file! l.weights - l.index = %d \n", l.index);
+    //for (int i = 0; i < l.nweights; ++i) printf(" %f, ", l.weights[i]);
+    //printf("\n\n");
 #ifdef GPU
     if (gpu_index >= 0) {
         push_shortcut_layer(l);
@@ -1856,17 +1865,19 @@ void load_weights_upto(network *net, char *filename, int cutoff)
     fread(&minor, sizeof(int), 1, fp);
     fread(&revision, sizeof(int), 1, fp);
     if ((major * 10 + minor) >= 2) {
-        printf("\n seen 64 \n");
+        printf("\n seen 64");
         uint64_t iseen = 0;
         fread(&iseen, sizeof(uint64_t), 1, fp);
         *net->seen = iseen;
     }
     else {
-        printf("\n seen 32 \n");
+        printf("\n seen 32");
         uint32_t iseen = 0;
         fread(&iseen, sizeof(uint32_t), 1, fp);
         *net->seen = iseen;
     }
+    *net->cur_iteration = get_current_batch(*net);
+    printf(", trained: %.0f K-images (%.0f Kilo-batches_64) \n", (float)(*net->seen / 1000), (float)(*net->seen / 64000));
     int transpose = (major > 1000) || (minor > 1000);
 
     int i;
@@ -1954,12 +1965,13 @@ void load_weights(network *net, char *filename)
 network *load_network_custom(char *cfg, char *weights, int clear, int batch)
 {
     printf(" Try to load cfg: %s, weights: %s, clear = %d \n", cfg, weights, clear);
-    network* net = (network*)calloc(1, sizeof(network));
+    network* net = (network*)xcalloc(1, sizeof(network));
     *net = parse_network_cfg_custom(cfg, batch, 1);
     if (weights && weights[0] != 0) {
+        printf(" Try to load weights: %s \n", weights);
         load_weights(net, weights);
     }
-    //fuse_conv_batchnorm(*net);
+    fuse_conv_batchnorm(*net);
     if (clear) (*net->seen) = 0;
     return net;
 }
@@ -1967,10 +1979,11 @@ network *load_network_custom(char *cfg, char *weights, int clear, int batch)
 // load network & get batch size from cfg-file
 network *load_network(char *cfg, char *weights, int clear)
 {
-    printf(" Try to load cfg: %s, weights: %s, clear = %d \n", cfg, weights, clear);
-    network* net = (network*)calloc(1, sizeof(network));
+    printf(" Try to load cfg: %s, clear = %d \n", cfg, clear);
+    network* net = (network*)xcalloc(1, sizeof(network));
     *net = parse_network_cfg(cfg);
     if (weights && weights[0] != 0) {
+        printf(" Try to load weights: %s \n", weights);
         load_weights(net, weights);
     }
     if (clear) (*net->seen) = 0;
