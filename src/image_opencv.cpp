@@ -577,6 +577,21 @@ extern "C" cap_cv* get_capture_video_stream(const char *path) {
 }
 // ----------------------------------------
 
+extern "C" cap_cv* get_capture_CSI_webcam(char *csi)
+{
+    cv::VideoCapture* cap = NULL;
+    try {
+        cap = new cv::VideoCapture(csi);
+        //cap->set(CV_CAP_PROP_FRAME_WIDTH, 1280);
+        //cap->set(CV_CAP_PROP_FRAME_HEIGHT, 960);
+    }
+    catch (...) {
+        cerr << " OpenCV exception: CSI-camera " << csi << " can't be opened! \n";
+    }
+    return (cap_cv*)cap;
+}
+// ----------------------------------------
+
 extern "C" cap_cv* get_capture_webcam(int index)
 {
     cv::VideoCapture* cap = NULL;

@@ -1670,6 +1670,8 @@ void run_detector(int argc, char **argv)
     float hier_thresh = find_float_arg(argc, argv, "-hier", .5);
     int cam_index = find_int_arg(argc, argv, "-c", 0);
     int cam_index2 = find_int_arg(argc, argv, "-c2", -1);
+    char *csi = find_char_arg(argc, argv, "-csi", 0);
+    char *csi2 = find_char_arg(argc, argv, "-csi2", 0);
     int frame_skip = find_int_arg(argc, argv, "-s", 0);
     int num_of_clusters = find_int_arg(argc, argv, "-num_of_clusters", 5);
     int width = find_int_arg(argc, argv, "-width", -1);
@@ -1729,7 +1731,7 @@ void run_detector(int argc, char **argv)
         if (filename)
             if (strlen(filename) > 0)
                 if (filename[strlen(filename) - 1] == 0x0d) filename[strlen(filename) - 1] = 0;
-        demo(cfg, weights, thresh, hier_thresh, cam_index, cam_index2, filename, names, classes, frame_skip, prefix, out_filename,
+        demo(cfg, weights, thresh, hier_thresh, cam_index, cam_index2, csi, csi2, filename, names, classes, frame_skip, prefix, out_filename,
             mjpeg_port, json_port, mjpeg_port2, dont_show, ext_output, letter_box, time_limit_sec, http_post_host, benchmark, benchmark_layers);
 
         free_list_contents_kvp(options);

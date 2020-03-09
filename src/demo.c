@@ -143,7 +143,7 @@ double get_wall_time()
     return (double)walltime.tv_sec + (double)walltime.tv_usec * .000001;
 }
 
-void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int cam_index, int cam_index2, const char *filename, char **names, int classes,
+void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int cam_index, int cam_index2, char *csi, char *csi2, const char *filename, char **names, int classes,
     int frame_skip, char *prefix, char *out_filename, int mjpeg_port, int json_port, int mjpeg_port2, int dont_show, int ext_output, int letter_box_in, int time_limit_sec, char *http_post_host,
     int benchmark, int benchmark_layers)
 {
@@ -171,6 +171,14 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     if(filename) {
         printf("video file: %s\n", filename);
         cap = get_capture_video_stream(filename);
+    }else if(csi && csi2){
+        printf("Webcam csi: %s\n", csi);
+        printf("Webcam csi2: %s\n", csi2);
+        cap = get_capture_CSI_webcam(csi);
+        cap2 = get_capture_CSI_webcam(csi2);
+    }else if(csi){
+        printf("Webcam csi: %s\n", csi);
+        cap = get_capture_CSI_webcam(csi);
     }else if(cam_index2 == -1){
         printf("Webcam index: %d\n", cam_index);
         cap = get_capture_webcam(cam_index);
