@@ -1576,7 +1576,7 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
                 fwrite(tmp, sizeof(char), strlen(tmp), json_file);
             }
             ++json_image_id;
-            json_buf = detection_to_json(dets, nboxes, l.classes, names, json_image_id, input);
+            json_buf = detection_to_json(dets, nboxes, l.classes, names, json_image_id, input, NULL);
 
             fwrite(json_buf, sizeof(char), strlen(json_buf), json_file);
             free(json_buf);
@@ -1659,6 +1659,7 @@ void run_detector(int argc, char **argv)
     int show_imgs = find_arg(argc, argv, "-show_imgs");
     int mjpeg_port = find_int_arg(argc, argv, "-mjpeg_port", -1);
     int json_port = find_int_arg(argc, argv, "-json_port", -1);
+    int mjpeg_port2 = find_int_arg(argc, argv, "-mjpeg_port2", -1);
     char *http_post_host = find_char_arg(argc, argv, "-http_post_host", 0);
     int time_limit_sec = find_int_arg(argc, argv, "-time_limit_sec", 0);
     char *out_filename = find_char_arg(argc, argv, "-out_filename", 0);
@@ -1668,6 +1669,7 @@ void run_detector(int argc, char **argv)
     float iou_thresh = find_float_arg(argc, argv, "-iou_thresh", .5);    // 0.5 for mAP
     float hier_thresh = find_float_arg(argc, argv, "-hier", .5);
     int cam_index = find_int_arg(argc, argv, "-c", 0);
+    int cam_index2 = find_int_arg(argc, argv, "-c2", -1);
     int frame_skip = find_int_arg(argc, argv, "-s", 0);
     int num_of_clusters = find_int_arg(argc, argv, "-num_of_clusters", 5);
     int width = find_int_arg(argc, argv, "-width", -1);
@@ -1727,8 +1729,8 @@ void run_detector(int argc, char **argv)
         if (filename)
             if (strlen(filename) > 0)
                 if (filename[strlen(filename) - 1] == 0x0d) filename[strlen(filename) - 1] = 0;
-        demo(cfg, weights, thresh, hier_thresh, cam_index, filename, names, classes, frame_skip, prefix, out_filename,
-            mjpeg_port, json_port, dont_show, ext_output, letter_box, time_limit_sec, http_post_host, benchmark, benchmark_layers);
+        demo(cfg, weights, thresh, hier_thresh, cam_index, cam_index2, filename, names, classes, frame_skip, prefix, out_filename,
+            mjpeg_port, json_port, mjpeg_port2, dont_show, ext_output, letter_box, time_limit_sec, http_post_host, benchmark, benchmark_layers);
 
         free_list_contents_kvp(options);
         free_list(options);

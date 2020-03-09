@@ -304,10 +304,10 @@ void send_json_custom(char const* send_buf, int port, int timeout)
     }
 }
 
-void send_json(detection *dets, int nboxes, int classes, char **names, long long int frame_id, int port, int timeout)
+void send_json(detection *dets, int nboxes, int classes, char **names, long long int frame_id, int port, int timeout, int Cam_Id)
 {
     try {
-        char *send_buf = detection_to_json(dets, nboxes, classes, names, frame_id, NULL);
+        char *send_buf = detection_to_json(dets, nboxes, classes, names, frame_id, NULL, Cam_Id);
 
         send_json_custom(send_buf, port, timeout);
         std::cout << " JSON-stream sent. \n";
@@ -525,6 +525,7 @@ public:
 // ----------------------------------------
 
 static std::mutex mtx_mjpeg;
+static std::mutex mtx_mjpeg2;
 
 //struct mat_cv : cv::Mat { int a[0]; };
 
@@ -532,6 +533,20 @@ void send_mjpeg(mat_cv* mat, int port, int timeout, int quality)
 {
     try {
         std::lock_guard<std::mutex> lock(mtx_mjpeg);
+        static MJPG_sender wri(port, timeout, quality);
+        //cv::Mat mat = cv::cvarrToMat(ipl);
+        wri.write(*(cv::Mat*)mat);
+        std::cout << " MJPEG-stream sent. \n";
+    }
+    catch (...) {
+        cerr << " Error in send_mjpeg() function \n";
+    }
+}
+
+void send_mjpeg2(mat_cv* mat, int port, int timeout, int quality)
+{
+    try {
+        std::lock_guard<std::mutex> lock(mtx_mjpeg2);
         static MJPG_sender wri(port, timeout, quality);
         //cv::Mat mat = cv::cvarrToMat(ipl);
         wri.write(*(cv::Mat*)mat);

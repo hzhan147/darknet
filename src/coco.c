@@ -391,11 +391,13 @@ void run_coco(int argc, char **argv)
 	int dont_show = find_arg(argc, argv, "-dont_show");
 	int mjpeg_port = find_int_arg(argc, argv, "-mjpeg_port", -1);
     int json_port = find_int_arg(argc, argv, "-json_port", -1);
+    int mjpeg_port2 = find_int_arg(argc, argv, "-mjpeg_port2", -1);
 	char *out_filename = find_char_arg(argc, argv, "-out_filename", 0);
     char *prefix = find_char_arg(argc, argv, "-prefix", 0);
     float thresh = find_float_arg(argc, argv, "-thresh", .2);
 	float hier_thresh = find_float_arg(argc, argv, "-hier", .5);
     int cam_index = find_int_arg(argc, argv, "-c", 0);
+    int cam_index2 = find_int_arg(argc, argv, "-c2", -1);
     int frame_skip = find_int_arg(argc, argv, "-s", 0);
 	int ext_output = find_arg(argc, argv, "-ext_output");
 
@@ -411,6 +413,6 @@ void run_coco(int argc, char **argv)
     else if(0==strcmp(argv[2], "train")) train_coco(cfg, weights);
     else if(0==strcmp(argv[2], "valid")) validate_coco(cfg, weights);
     else if(0==strcmp(argv[2], "recall")) validate_coco_recall(cfg, weights);
-    else if(0==strcmp(argv[2], "demo")) demo(cfg, weights, thresh, hier_thresh, cam_index, filename, coco_classes, 80, frame_skip,
-		prefix, out_filename, mjpeg_port, json_port, dont_show, ext_output, 0, 0, 0, 0, 0);
+    else if(0==strcmp(argv[2], "demo")) demo(cfg, weights, thresh, hier_thresh, cam_index, cam_index2, filename, coco_classes, 80, frame_skip,
+		prefix, out_filename, mjpeg_port, json_port, mjpeg_port2, dont_show, ext_output, 0, 0, 0, 0, 0);
 }

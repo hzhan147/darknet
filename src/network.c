@@ -845,17 +845,17 @@ void free_detections(detection *dets, int n)
 // ]
 //},
 
-char *detection_to_json(detection *dets, int nboxes, int classes, char **names, long long int frame_id, char *filename)
+char *detection_to_json(detection *dets, int nboxes, int classes, char **names, long long int frame_id, char *filename, int Cam_Id)
 {
     const float thresh = 0.005; // function get_network_boxes() has already filtred dets by actual threshold
 
     char *send_buf = (char *)calloc(1024, sizeof(char));
     if (!send_buf) return 0;
     if (filename) {
-        sprintf(send_buf, "{\n \"frame_id\":%lld, \n \"filename\":\"%s\", \n \"objects\": [ \n", frame_id, filename);
+        sprintf(send_buf, "{\n \"frame_id\":%lld, \n \"filename\":\"%s\", \n \"Camera_Id\":\"%d\", \n \"objects\": [ \n", frame_id,filename, Cam_Id);
     }
     else {
-        sprintf(send_buf, "{\n \"frame_id\":%lld, \n \"objects\": [ \n", frame_id);
+        sprintf(send_buf, "{\n \"frame_id\":%lld, \n \"Camera_Id\":\"%d\", \n \"objects\": [ \n", frame_id, Cam_Id);
     }
 
     int i, j;
